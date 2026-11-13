@@ -1,4 +1,4 @@
-# 刻杨自研 · YouTube 增强覆写（完整版）v1.3.0 / 2026-11-14
+# 刻杨自研 · YouTube 增强覆写（完整版）v1.3.1 / 2026-11-14
 # 功能：去广告（重写层 + 脚本层）+ 画中画 + 后台播放（脚本层处理 protobuf：player / get_watch 内嵌 player / get_setting 设置项）
 # 用法：在 Stash 里用本文件的远程地址添加覆写即可（脚本已指向下面 script-providers 的 GitHub raw 地址）。
 #       仓库：https://github.com/sasigai1/youtube-stash-override
@@ -6,7 +6,7 @@
 
 name: 刻杨自研·YouTube增强
 desc: |-
-  v1.3.0：body 字节接入改鸭子类型（修 instanceof 跨 realm 误判导致二进制响应被静默放行的嫌疑），并加 [YTE] 诊断日志。
+  v1.3.1：修复 v1.3.0 推送时覆写内容串版导致的「格式不正确」（GitHub 上的文件与本地不一致）；脚本与 v1.3.0 相同：body 鸭子类型接入 + [YTE] 诊断日志。
   自研覆写：重写层拦截广告请求，脚本层清广告字段并打开画中画/后台播放（player / get_watch / get_setting 三条链）。
   脚本 fail-open，解析失败自动放行，不挡正常播放。
 
@@ -14,32 +14,30 @@ icon: https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/YouTub
 
 http:
   force-http-engine:
-    - host: youtubei.googleapis.com
-      engine: "jsc"
-    - host: "*.googlevideo.com"
-      engine: "jsc"
+    - youtubei.googleapis.com
+    - "*.googlevideo.com"
+
   mitm:
     - "*.googlevideo.com"
     - youtubei.googleapis.com
     - www.youtube.com
     - s.youtube.com
+
   url-rewrite:
-    - ^https?:\/\/[\w-]+\.googlevideo\.com\/(?!(?:dclk_video_ads)).+&ctier=L&.+ ctier 302
-    - ^https?:\/\/[\w-]+\.googlevideo\.com\/.+&oad _ reject
-    - ^https?:\/\/[\w-]+\.googlevideo\.com\/videoplayback\?.*?&initplayback=true\/?$ - reject
-    - https://www.youtube.com/s/player/.*?/player_ias.vflset/.*?/.*?\.js empty.js 302
-    - https?:\/\/www\.youtube\.com\/get_midroll_ - reject
-    - ^https?:\/\/www\.googlevideo\.com - reject
-    - https?:\/\/s0\.2mdn\.net - reject
-    - ^https?:\/\/s\.youtube\.com\/api\/stats\/ads - reject
-    - ^https?:\/\/www\.youtube\.com\/api\/stats\/ads - reject
-    - ^https?:\/\/www\.youtube\.com\/pagead - reject
-    - ^https?:\/\/www\.youtube\.com\/ptracking - reject
-    - ^https?:\/\/www\.youtube\.com\/api\/stats\/qoe\? - reject
-    - ^https?:\/\/[^\/]+\.googlevideo\.com\/.+/player\/ad_break - reject
+    # 去掉低清广告分片标记，让广告分片请求回到正常分片参数
+    - (^https?:\/\/[\w-]+\.googlevideo\.com\/(?!dclk_video_ads).+?)&ctier=L(&.+?),ctier,(.+) $1$2$3 302
+    # 拦截广告初始化与广告分片
+    - ^https?:\/\/[\w-]+\.googlevideo\.com\/(?!(?:dclk_video_ads|videoplayback\?)).+&oad - reject
+    - ^https?:\/\/[\w-]+\.googlevideo\.com\/initplayback.+&oad - reject
+    - ^https?:\/\/youtubei\.googleapis\.com\/youtubei\/v\d\/player\/ad_break - reject
+    # 拦截广告统计/追踪
+    - ^https?:\/\/(www|s)\.youtube\.com\/api\/stats\/ads - reject
+    - ^https?:\/\/(www|s)\.youtube\.com\/(pagead|ptracking) - reject
+    - ^https?:\/\/s\.youtube\.com\/api\/stats\/qoe\?adcontext - reject
+
   script:
-    - match: ^https:\/\/youtubei\.googleapis\.com\/youtubei\/v1\/(browse|next|player|search|reel\/reel_watch_sequence|guide|account\/get_setting|get_watch)
-      name: YouTubeEnhance
+    - name: YouTubeEnhance
+      match: ^https:\/\/youtubei\.googleapis\.com\/youtubei\/v1\/(browse|next|player|search|reel\/reel_watch_sequence|guide|account\/get_setting|get_watch)
       type: response
       require-body: true
       binary-mode: true
@@ -50,13 +48,7 @@ script-providers:
     url: https://raw.githubusercontent.com/sasigai1/youtube-stash-override/main/youtube-enhance.js
     interval: 86400
 
-script:
-  argument:
-
-rule:
-  - DOMAIN,youtubei.googleapis.com,REJECT,via-interface
-    enhancement: true
-    name: "Reject QUIC for youtubei"
-  - DOMAIN,googlevideo.com,REJECT,via-interface
-    enhancement: true
-    name: "Reject QUIC for video"
+rules:
+  # 阻断 QUIC/UDP，让流量回落到可被 MitM 解密的 HTTPS，否则上面的重写和脚本看不到流量
+  - AND,((PROTOCOL,QUIC),(DOMAIN-SUFFIX,youtubei.googleapis.com)),REJECT
+  - AND,((PROTOCOL,QUIC),(DOMAIN-SUFFIX,googlevideo.com)),REJECT
