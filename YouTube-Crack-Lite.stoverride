@@ -1,0 +1,33 @@
+# 刻杨自研 · YouTube 去广告覆写（轻量版）v1.0.0 / 2026-11-14
+# 功能：只有重写层去广告 + 阻断 QUIC，不含脚本，不用托管任何文件，导入即用。
+# 注意：带 MitM 的覆写必须在 Stash 里生成并信任 CA 证书才生效；不要用别人的证书。
+
+name: 刻杨自研·YouTube去广告Lite
+desc: |-
+  自研覆写（轻量版）：纯重写规则去广告，无脚本层，无画中画/后台播放。
+
+icon: https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/YouTube.png
+
+http:
+  force-http-engine:
+    - youtubei.googleapis.com
+    - "*.googlevideo.com"
+
+  mitm:
+    - "*.googlevideo.com"
+    - youtubei.googleapis.com
+    - www.youtube.com
+    - s.youtube.com
+
+  url-rewrite:
+    - (^https?:\/\/[\w-]+\.googlevideo\.com\/(?!dclk_video_ads).+?)&ctier=L(&.+?),ctier,(.+) $1$2$3 302
+    - ^https?:\/\/[\w-]+\.googlevideo\.com\/(?!(?:dclk_video_ads|videoplayback\?)).+&oad - reject
+    - ^https?:\/\/[\w-]+\.googlevideo\.com\/initplayback.+&oad - reject
+    - ^https?:\/\/youtubei\.googleapis\.com\/youtubei\/v\d\/player\/ad_break - reject
+    - ^https?:\/\/(www|s)\.youtube\.com\/api\/stats\/ads - reject
+    - ^https?:\/\/(www|s)\.youtube\.com\/(pagead|ptracking) - reject
+    - ^https?:\/\/s\.youtube\.com\/api\/stats\/qoe\?adcontext - reject
+
+rules:
+  - AND,((PROTOCOL,QUIC),(DOMAIN-SUFFIX,youtubei.googleapis.com)),REJECT
+  - AND,((PROTOCOL,QUIC),(DOMAIN-SUFFIX,googlevideo.com)),REJECT

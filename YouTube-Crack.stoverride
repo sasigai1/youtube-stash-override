@@ -1,0 +1,53 @@
+# 刻杨自研 · YouTube 增强覆写（完整版）v1.0.0 / 2026-11-14
+# 功能：去广告（重写层 + 脚本层）+ 画中画 + 后台播放（脚本层，实验性）
+# 用法：在 Stash 里用本文件的远程地址添加覆写即可（脚本已指向下面 script-providers 的 GitHub raw 地址）。
+#       仓库：https://github.com/sasigai1/youtube-stash-override
+# 注意：带 MitM 的覆写必须在 Stash 里生成并信任 CA 证书才生效；不要用别人的证书。
+
+name: 刻杨自研·YouTube增强
+desc: |-
+  自研覆写：重写层拦截广告请求，脚本层清广告字段并打开画中画/后台播放。
+  脚本 fail-open，解析失败自动放行，不挡正常播放。
+
+icon: https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/YouTube.png
+
+http:
+  force-http-engine:
+    - youtubei.googleapis.com
+    - "*.googlevideo.com"
+
+  mitm:
+    - "*.googlevideo.com"
+    - youtubei.googleapis.com
+    - www.youtube.com
+    - s.youtube.com
+
+  url-rewrite:
+    # 去掉低清广告分片标记，让广告分片请求回到正常分片参数
+    - (^https?:\/\/[\w-]+\.googlevideo\.com\/(?!dclk_video_ads).+?)&ctier=L(&.+?),ctier,(.+) $1$2$3 302
+    # 拦截广告初始化与广告分片
+    - ^https?:\/\/[\w-]+\.googlevideo\.com\/(?!(?:dclk_video_ads|videoplayback\?)).+&oad - reject
+    - ^https?:\/\/[\w-]+\.googlevideo\.com\/initplayback.+&oad - reject
+    - ^https?:\/\/youtubei\.googleapis\.com\/youtubei\/v\d\/player\/ad_break - reject
+    # 拦截广告统计/追踪
+    - ^https?:\/\/(www|s)\.youtube\.com\/api\/stats\/ads - reject
+    - ^https?:\/\/(www|s)\.youtube\.com\/(pagead|ptracking) - reject
+    - ^https?:\/\/s\.youtube\.com\/api\/stats\/qoe\?adcontext - reject
+
+  script:
+    - name: YouTubeEnhance
+      match: ^https:\/\/youtubei\.googleapis\.com\/youtubei\/v1\/(browse|next|player|search|reel\/reel_watch_sequence|guide|account\/get_setting|get_watch)
+      type: response
+      require-body: true
+      binary-mode: false
+      timeout: 10
+
+script-providers:
+  YouTubeEnhance:
+    url: https://raw.githubusercontent.com/sasigai1/youtube-stash-override/main/youtube-enhance.js
+    interval: 86400
+
+rules:
+  # 阻断 QUIC/UDP，让流量回落到可被 MitM 解密的 HTTPS，否则上面的重写和脚本看不到流量
+  - AND,((PROTOCOL,QUIC),(DOMAIN-SUFFIX,youtubei.googleapis.com)),REJECT
+  - AND,((PROTOCOL,QUIC),(DOMAIN-SUFFIX,googlevideo.com)),REJECT
