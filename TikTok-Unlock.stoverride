@@ -7,9 +7,9 @@ category: 解锁
 
 # 屏蔽 QUIC，强制走 HTTPS，否则 MITM 改不到参数
 rules:
-  - AND,((NETWORK,UDP),(DST-PORT,443),(DOMAIN-SUFFIX,tiktokv.com)),REJECT-NO-DROP
-  - AND,((NETWORK,UDP),(DST-PORT,443),(DOMAIN-SUFFIX,byteoversea.com)),REJECT-NO-DROP
-  - AND,((NETWORK,UDP),(DST-PORT,443),(DOMAIN-SUFFIX,tik-tokapi.com)),REJECT-NO-DROP
+  - AND,((PROTOCOL,UDP),(DOMAIN-SUFFIX,tiktokv.com)),REJECT-NO-DROP
+  - AND,((PROTOCOL,UDP),(DOMAIN-SUFFIX,byteoversea.com)),REJECT-NO-DROP
+  - AND,((PROTOCOL,UDP),(DOMAIN-SUFFIX,tik-tokapi.com)),REJECT-NO-DROP
 
 http:
   mitm:
