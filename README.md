@@ -26,6 +26,6 @@ https://link.stash.ws/install-override/raw.githubusercontent.com/sasigai1/youtub
 
 ## 说明
 
-- YouTube App 的响应多为 protobuf 二进制，脚本层只处理 JSON 响应，二进制响应原样放行；去广告主要靠重写层。
+- v1.1 起脚本层处理 protobuf 二进制 player 响应：删 adPlacements/adSlots 字段，并把 playabilityStatus 里的后台播放（字段 11）/画中画（字段 21）Render 换成 active=true；其余字段逐字节保留，解析失败自动放行。JSON 响应仍走 JSON 处理。
 - 这不是 YouTube Premium 会员破解：会员专享视频、官方离线下载等服务端验会员的功能无法通过覆写获得。
-- v1.0.0 / 2026-11-14，真机效果待验证。
+- v1.1.0 / 2026-11-14。v1.0 真机反馈：后台播放未生效（当时脚本只处理 JSON）；v1.1 已针对 protobuf 重写，效果待真机复测。
