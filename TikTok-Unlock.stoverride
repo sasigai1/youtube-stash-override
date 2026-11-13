@@ -1,34 +1,19 @@
-name: TikTok 地区解锁
+name: TikTok 地区解锁（日本）
 desc: |-
-  改写 TikTok 请求里的地区与运营商参数，绕开 CN 限制
-  需开启 MITM 并信任证书，并把 TikTok 流量分流到对应地区的节点
+  通用改写方案，只对旧版 TikTok（约 21.1.0）稳定有效
+  新版 TikTok 会校验请求签名，改参数反而可能导致无法播放
+  需开启 MITM 并信任证书，TikTok 分流到日本节点
 icon: https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/TikTok.png
 category: 解锁
-
-# 屏蔽 QUIC，强制走 HTTPS，否则 MITM 改不到参数
-rules:
-  - AND,((PROTOCOL,UDP),(DOMAIN-SUFFIX,tiktokv.com)),REJECT-NO-DROP
-  - AND,((PROTOCOL,UDP),(DOMAIN-SUFFIX,byteoversea.com)),REJECT-NO-DROP
-  - AND,((PROTOCOL,UDP),(DOMAIN-SUFFIX,tik-tokapi.com)),REJECT-NO-DROP
 
 http:
   mitm:
     - "*.tiktokv.com"
     - "*.byteoversea.com"
     - "*.tik-tokapi.com"
-    - "*.tiktokv.us"
-    - "*.tiktokv.eu"
-
-  script:
-    - match: ^https?:\/\/[\w.-]+\.(tiktokv\.com|byteoversea\.com|tik-tokapi\.com|tiktokv\.us|tiktokv\.eu)\/.*[?&](carrier_region|sys_region|region|op_region|mcc_mnc)=
-      name: tiktok.region
-      type: request
-      require-body: false
-      timeout: 10
-      # 目标地区，可改成 US / TW / KR / SG / GB，必须和你分流的节点地区一致
-      argument: JP
-
-script-providers:
-  tiktok.region:
-    url: https://raw.githubusercontent.com/sasigai1/youtube-stash-override/main/tiktok-region.js
-    interval: 86400
+  rewrite:
+    # JP 为观看地区，可改为 US / TW / KR / SG
+    - (?<=_region=)CN(?=&) JP 307
+    - (?<=&mcc_mnc=)4 2 307
+    - ^(https?:\/\/(tnc|dm)[\w-]+\.\w+\.com\/.+)(\?)(.+) $1$3 302
+    - (^https?:\/\/*\.\w{4}okv.com\/.+&.+)(\d{2}\.3\.\d)(.+) $118.0$3 302
