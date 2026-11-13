@@ -1,0 +1,66 @@
+name: YouTube (Music) 增强
+desc: |-
+  去广告 / 后台播放 / 画中画 / 字幕翻译 / 精简界面
+  适用于 YouTube 与 YouTube Music，需开启 MITM 并信任证书
+icon: https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/YouTube.png
+category: 增强
+
+# 屏蔽 QUIC，强制走 HTTPS，否则 MITM 抓不到流量
+rules:
+  - AND,((NETWORK,UDP),(DST-PORT,443),(DOMAIN-SUFFIX,googlevideo.com)),REJECT-NO-DROP
+  - AND,((NETWORK,UDP),(DST-PORT,443),(DOMAIN,youtubei.googleapis.com)),REJECT-NO-DROP
+
+http:
+  mitm:
+    - "*.googlevideo.com"
+    - "youtubei.googleapis.com"
+
+  url-rewrite:
+    # 拦截贴片广告的初始化请求
+    - ^https?:\/\/[\w-]+\.googlevideo\.com\/initplayback.+&oad _ reject-200
+    - ^https?:\/\/(www|s)\.youtube\.com\/api\/stats\/ads _ reject-200
+    - ^https?:\/\/(www|s)\.youtube\.com\/(pagead|ptracking) _ reject-200
+    - ^https?:\/\/s\.youtube\.com\/api\/stats\/qoe\?adcontext _ reject-200
+
+  script:
+    # 主脚本：去广告 + 后台播放 + 画中画 + 字幕翻译 + 界面精简
+    - match: ^https:\/\/youtubei\.googleapis\.com\/(youtubei\/v1\/(browse|next|player|search|reel\/reel_watch_sequence|guide|account\/get_setting|get_watch|log_event|config))(\?(.*))?$
+      name: youtube.response
+      type: response
+      require-body: true
+      binary-mode: true
+      max-size: -1
+      timeout: 20
+      argument: '{"captionLang":"zh-Hans","blockUpload":true,"blockImmersive":true,"blockShorts":false,"debug":false}'
+
+    - match: ^https?:\/\/[\w-]+\.googlevideo\.com\/initplayback.+&ack.*
+      name: youtube.request
+      type: request
+      require-body: true
+      binary-mode: true
+      max-size: -1
+      timeout: 20
+      argument: '{"captionLang":"zh-Hans"}'
+
+    - match: ^https:\/\/youtubei\.googleapis\.com\/youtubei\/v1\/log_event
+      name: youtube.request
+      type: request
+      require-body: true
+      binary-mode: true
+      max-size: -1
+      timeout: 20
+
+script-providers:
+  youtube.response:
+    url: https://raw.githubusercontent.com/Maasea/sgmodule/master/Script/Youtube/youtube.response.js
+    interval: 86400
+  youtube.request:
+    url: https://raw.githubusercontent.com/Maasea/sgmodule/master/Script/Youtube/youtube.request.js
+    interval: 86400
+
+# 参数说明（改 argument 里的值）：
+# captionLang: 字幕翻译语言，zh-Hans 简中 / zh-Hant 繁中 / off 关闭
+# blockUpload: 屏蔽底栏上传按钮
+# blockImmersive: 屏蔽选段按钮
+# blockShorts: 屏蔽 Shorts 入口，true 开启
+# debug: 调试日志
