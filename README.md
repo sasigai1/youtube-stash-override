@@ -26,6 +26,6 @@ https://link.stash.ws/install-override/raw.githubusercontent.com/sasigai1/youtub
 
 ## 说明
 
-- v1.1 起脚本层处理 protobuf 二进制 player 响应：删 adPlacements/adSlots 字段，并把 playabilityStatus 里的后台播放（字段 11）/画中画（字段 21）Render 换成 active=true；其余字段逐字节保留，解析失败自动放行。JSON 响应仍走 JSON 处理。
+- 脚本层处理 protobuf 二进制：player 响应删 adPlacements/adSlots 并把 playabilityStatus 里后台（字段 11）/画中画（字段 21）Render 换成 active=true；get_watch 响应改内嵌 player；account/get_setting 响应追加后台播放设置项（字段 88478200）并给 categoryId=10135 分类补 item=151 布尔开关。其余字段逐字节保留，解析失败自动放行。JSON 响应走 JSON 处理。
 - 这不是 YouTube Premium 会员破解：会员专享视频、官方离线下载等服务端验会员的功能无法通过覆写获得。
-- v1.1.0 / 2026-11-14。v1.0 真机反馈：后台播放未生效（当时脚本只处理 JSON）；v1.1 已针对 protobuf 重写，效果待真机复测。
+- 版本记录：v1.0 真机后台未生效（只处理 JSON）；v1.1 改 protobuf player，真机仍未生效；v1.2 补 get_watch + get_setting 两条链（与参考实现的 handler 构成对齐），待真机复测。诊断法：更新后打开 YouTube 设置页，若多出后台播放设置项，说明脚本链已生效。

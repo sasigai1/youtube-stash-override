@@ -1,5 +1,5 @@
-# 刻杨自研 · YouTube 增强覆写（完整版）v1.1.0 / 2026-11-14
-# 功能：去广告（重写层 + 脚本层）+ 画中画 + 后台播放（脚本层，v1.1 起处理 protobuf 二进制）
+# 刻杨自研 · YouTube 增强覆写（完整版）v1.2.0 / 2026-11-14
+# 功能：去广告（重写层 + 脚本层）+ 画中画 + 后台播放（脚本层处理 protobuf：player / get_watch 内嵌 player / get_setting 设置项）
 # 用法：在 Stash 里用本文件的远程地址添加覆写即可（脚本已指向下面 script-providers 的 GitHub raw 地址）。
 #       仓库：https://github.com/sasigai1/youtube-stash-override
 # 注意：带 MitM 的覆写必须在 Stash 里生成并信任 CA 证书才生效；不要用别人的证书。

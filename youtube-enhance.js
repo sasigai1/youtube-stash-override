@@ -1,18 +1,27 @@
 /*
- * YouTube Enhance for Stash — 自研脚本（刻杨版 v1.1.0, 2026-11-14）
+ * YouTube Enhance for Stash — 自研脚本（刻杨版 v1.2.0, 2026-11-14）
  *
- * v1.1 新增：protobuf 二进制改写（v1.0 只能处理 JSON，这就是后台播放没生效的原因）。
- * YouTube App 的 player 响应是 protobuf，字段号按公开逆向定义（与 Maasea 开源包中
- * protobuf-ts 生成的字段表一致，此处为自研的通用 wire-format 解析实现）：
- *   Player(根)            : 2=playabilityStatus, 7=adPlacements, 68=adSlots
- *   PlayabilityStatus     : 11=backgroundPlayerRender, 21=pictureInPictureRender
- *   BackgroundSupportedRenderer : 64657230=backgroundAbility → 1=active(bool)
- *   PictureInPictureSupportedRenderer : 151635310=pictureInPictureAbility
- *   PictureInPictureAbility : 1=active(bool), 8=f8(=1)
+ * 字段号均按公开逆向定义（与 Maasea 开源包中 protobuf-ts 生成的字段表一致，
+ * 解析/改写为自研通用 wire-format 实现）。三条链：
  *
- * 做法：通用 protobuf 解析 → player 响应删广告字段(7/68)，并把 playabilityStatus 里的
- * 后台(11)/画中画(21) 两个 Render 整体换成 active=true 的版本；其余字段逐字节原样保留。
- * JSON 响应走 v1.0 的 JSON 处理。任何解析失败一律 fail-open 原样放行，绝不挡播放。
+ * 1) player 响应（protobuf）：
+ *    Player: 2=playabilityStatus, 7=adPlacements, 68=adSlots
+ *    PlayabilityStatus: 11=backgroundPlayerRender, 21=pictureInPictureRender
+ *    BackgroundSupportedRenderer: 64657230=backgroundAbility → 1=active
+ *    PictureInPictureSupportedRenderer: 151635310=pictureInPictureAbility → 1=active, 8=f8=1
+ *    → 删广告字段，把后台/画中画 Render 换成 active=true。
+ *
+ * 2) get_watch 响应（protobuf）：Watch: 1=contents；Content: 2=player（内嵌 Player）
+ *    → 对内嵌 player 做与 1) 相同的改写（v1.1 漏了这条，真机点播常走这里）。
+ *
+ * 3) account/get_setting 响应（protobuf）：
+ *    Setting: 6=settingItems；SettingItem: 88478200=backgroundPlayBackSettingRenderer,
+ *    66930374=settingCategoryCollectionRenderer{3=subSettings, 4=categoryId}
+ *    → 追加一个 backgroundPlayback/download/画中画相关开关全开的设置项，
+ *      并给 categoryId=10135 的分类补一条 clientSettingEnum item=151 的布尔开关
+ *      （v1.1 漏了这条：App 里没有这个设置项时，后台播放光有 playability 也不启用）。
+ *
+ * JSON 响应走 JSON 处理。其余响应、任何解析失败：一律 fail-open 原样放行，绝不挡播放。
  */
 
 (function () {
@@ -41,8 +50,6 @@
     return out;
   }
 
-  // 把一段 protobuf 消息解析成字段列表 [{no, wire, raw}]，raw 为含 tag 的完整字节切片。
-  // 遇到 group 等不支持的 wire type 直接抛错（外层 fail-open）。
   function parseFields(buf) {
     var fields = [];
     var pos = 0;
@@ -71,12 +78,17 @@
     return fields;
   }
 
-  // 取 LEN 字段的内部字节；不是 LEN 返回 null
   function lenPayload(field) {
     if (field.wire !== 2) return null;
     var tv = readVarint(field.raw, 0);
     var lv = readVarint(field.raw, tv[1]);
     return field.raw.slice(lv[1], lv[1] + lv[0]);
+  }
+
+  function varintValue(field) {
+    if (field.wire !== 0) return null;
+    var tv = readVarint(field.raw, 0);
+    return readVarint(field.raw, tv[1])[0];
   }
 
   function encodeLenField(no, payload) {
@@ -106,7 +118,7 @@
     return out;
   }
 
-  // ---------- protobuf: playabilityStatus 改写 ----------
+  // ---------- 1) player 改写 ----------
   function buildBackgroundRender() {
     var ability = encodeVarintField(1, 1);                        // BackgroundAbility{active:true}
     return encodeLenField(64657230, ability);                     // BackgroundSupportedRenderer
@@ -124,7 +136,7 @@
     var fields = parseFields(inner);
     var kept = [];
     for (var i = 0; i < fields.length; i++) {
-      if (fields[i].no === 11 || fields[i].no === 21) continue;   // 旧的后台/画中画设置丢弃，下面换新的
+      if (fields[i].no === 11 || fields[i].no === 21) continue;
       kept.push(fields[i].raw);
     }
     kept.push(encodeLenField(11, buildBackgroundRender()));
@@ -137,7 +149,7 @@
     var out = [], changed = false, sawPlayability = false;
     for (var i = 0; i < fields.length; i++) {
       var f = fields[i];
-      if (f.no === 7 || f.no === 68) { changed = true; continue; }  // 删 adPlacements / adSlots
+      if (f.no === 7 || f.no === 68) { changed = true; continue; }
       if (f.no === 2 && f.wire === 2) {
         var inner = lenPayload(f);
         if (inner) {
@@ -153,7 +165,127 @@
     return concatBytes(out);
   }
 
-  // ---------- JSON 处理（沿用 v1.0 逻辑） ----------
+  // ---------- 2) get_watch 改写：内嵌 player ----------
+  function patchWatch(bytes) {
+    var fields = parseFields(bytes);
+    var out = [], changed = false;
+    for (var i = 0; i < fields.length; i++) {
+      var f = fields[i];
+      if (f.no === 1 && f.wire === 2) {
+        var content = lenPayload(f);
+        if (content) {
+          var cFields = parseFields(content);
+          var cOut = [], cChanged = false;
+          for (var j = 0; j < cFields.length; j++) {
+            var cf = cFields[j];
+            if (cf.no === 2 && cf.wire === 2) {
+              var playerBytes = lenPayload(cf);
+              var patched = playerBytes && patchPlayer(playerBytes);
+              if (patched) { cOut.push(encodeLenField(2, patched)); cChanged = true; continue; }
+            }
+            cOut.push(cf.raw);
+          }
+          if (cChanged) { out.push(encodeLenField(1, concatBytes(cOut))); changed = true; continue; }
+        }
+      }
+      out.push(f.raw);
+    }
+    return changed ? concatBytes(out) : null;
+  }
+
+  // ---------- 3) get_setting 改写：补后台播放设置项 ----------
+  function buildSettingData(boolVal) {
+    // SettingData{ 1: ClientSettingEnum{1: item=151}, 3: boolValue }
+    // boolValue=false 时按 protobuf 默认值规则不写出（与参考实现一致）
+    var enumMsg = encodeVarintField(1, 151);
+    var parts = [encodeLenField(1, enumMsg)];
+    if (boolVal) parts.push(encodeVarintField(3, 1));
+    return concatBytes(parts);
+  }
+
+  function buildServiceEndpoint(boolVal) {
+    // ServiceEndpoint{ 81212182: SetClientSettingEndpoint{ 1: SettingData } }
+    var setEp = encodeLenField(1, buildSettingData(boolVal));
+    return encodeLenField(81212182, setEp);
+  }
+
+  function buildSubSetting() {
+    // SubSetting{ 61331416: SettingBooleanRenderer{ 5: enableEp(true), 6: disableEp(false) } }（itemId=0 省略）
+    var renderer = concatBytes([
+      encodeLenField(5, buildServiceEndpoint(true)),
+      encodeLenField(6, buildServiceEndpoint(false))
+    ]);
+    return encodeLenField(61331416, renderer);
+  }
+
+  function buildBackgroundSettingItem() {
+    // SettingItem{ 88478200: BackgroundPlayBackSettingRenderer{
+    //   2: backgroundPlayback=1, 3: download=1, 9: downloadQualitySelection=1,
+    //   10: smartDownload=1, 14: Icon{1: iconType=1093} } }
+    var renderer = concatBytes([
+      encodeVarintField(2, 1),
+      encodeVarintField(3, 1),
+      encodeVarintField(9, 1),
+      encodeVarintField(10, 1),
+      encodeLenField(14, encodeVarintField(1, 1093))
+    ]);
+    return encodeLenField(88478200, renderer);
+  }
+
+  function patchSetting(bytes) {
+    var fields = parseFields(bytes);
+    var hasItems = false, i, f;
+    for (i = 0; i < fields.length; i++) {
+      if (fields[i].no === 6 || fields[i].no === 7) { hasItems = true; break; }
+    }
+    if (!hasItems) return null; // 不像 Setting 响应，放行
+
+    var out = [];
+    for (i = 0; i < fields.length; i++) {
+      f = fields[i];
+      if (f.no === 6 && f.wire === 2) {
+        var item = lenPayload(f);
+        if (item) {
+          var patchedItem = patchSettingItem(item);
+          if (patchedItem) { out.push(encodeLenField(6, patchedItem)); continue; }
+        }
+      }
+      out.push(f.raw);
+    }
+    out.push(encodeLenField(6, buildBackgroundSettingItem()));
+    return concatBytes(out);
+  }
+
+  // 给 categoryId=10135 的分类集合追加一条布尔开关 SubSetting；不匹配原样返回 null
+  function patchSettingItem(itemBytes) {
+    var fields = parseFields(itemBytes);
+    var out = [], changed = false;
+    for (var i = 0; i < fields.length; i++) {
+      var f = fields[i];
+      if (f.no === 66930374 && f.wire === 2) {
+        var coll = lenPayload(f);
+        if (coll) {
+          var cFields = parseFields(coll);
+          var isTarget = false, j;
+          for (j = 0; j < cFields.length; j++) {
+            if (cFields[j].no === 4 && varintValue(cFields[j]) === 10135) { isTarget = true; break; }
+          }
+          if (isTarget) {
+            var cOut = [];
+            for (j = 0; j < cFields.length; j++) cOut.push(cFields[j].raw);
+            cOut.push(encodeLenField(3, buildSubSetting()));
+            out.push(encodeLenField(66930374, concatBytes(cOut)));
+            changed = true;
+            continue;
+          }
+        }
+      }
+      out.push(f.raw);
+    }
+    return changed ? concatBytes(out) : null;
+  }
+
+  // ---------- JSON 处理 ----------
   var AD_KEYS = {
     adPlacements: true, adSlots: true, playerAds: true, adBreakParams: true,
     adParams: true, instreamAdPlayerOverlayRenderer: true, instreamAdNativeComponentRenderer: true
@@ -201,7 +333,6 @@
     var raw = typeof $response !== "undefined" ? $response.body : null;
     if (raw == null) return $done({});
     var url = (typeof $request !== "undefined" && $request.url) || "";
-    var isPlayer = /youtubei\/v1\/player/.test(url);
 
     var bytes = null;
     if (typeof Uint8Array !== "undefined" && raw instanceof Uint8Array) bytes = raw;
@@ -212,17 +343,19 @@
     }
     if (!bytes || bytes.length === 0) return $done({});
 
-    // JSON 响应
     if (bytes[0] === 0x7b) {
       var text = new TextDecoder("utf-8").decode(bytes);
-      var patched = patchJson(text, url);
-      if (patched == null) return $done({});
-      return $done({ body: new TextEncoder().encode(patched) });
+      var patchedJson = patchJson(text, url);
+      if (patchedJson == null) return $done({});
+      return $done({ body: new TextEncoder().encode(patchedJson) });
     }
 
-    // protobuf 只处理 player 响应，其余原样放行
-    if (!isPlayer) return $done({});
-    var outBytes = patchPlayer(bytes);
+    var outBytes = null;
+    if (/youtubei\/v1\/player/.test(url)) outBytes = patchPlayer(bytes);
+    else if (/youtubei\/v1\/get_watch/.test(url)) outBytes = patchWatch(bytes);
+    else if (/youtubei\/v1\/account\/get_setting/.test(url)) outBytes = patchSetting(bytes);
+    else return $done({});
+
     if (!outBytes) return $done({});
     return $done({ body: outBytes });
   } catch (e) {
