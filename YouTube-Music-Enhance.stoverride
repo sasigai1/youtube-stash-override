@@ -1,0 +1,41 @@
+name: YouTube Music 增强
+desc: |-
+  去广告 / 后台播放 / 锁屏播放 / 下载按钮 / 屏蔽上传与片段入口 / MV 字幕翻译简体中文
+  同时适用于 YouTube，和「YouTube (Music) 增强」二选一启用，不要同时开
+  需开启 MITM 并信任证书，脚本作者 @Maasea
+icon: https://raw.githubusercontent.com/luestr/IconResource/main/App_icon/120px/YouTube_Music.png
+category: 增强
+
+http:
+  mitm:
+    - "*.googlevideo.com"
+    - "youtubei.googleapis.com"
+
+  url-rewrite:
+    # 拦截音频和视频前的贴片广告
+    - >-
+      ^https?:\/\/[\w-]+\.googlevideo\.com\/initplayback.+&oad - reject-200
+
+  script:
+    - match: ^https:\/\/youtubei\.googleapis\.com\/(youtubei\/v1\/(browse|next|player|search|reel\/reel_watch_sequence|guide|account\/get_setting|get_watch))(\?(.*))?$
+      name: "youtube.response"
+      type: response
+      require-body: true
+      max-size: -1
+      binary-mode: true
+      argument: |-
+        {"captionLang":"zh-Hans","blockUpload":true,"blockImmersive":true,"blockShorts":true,"debug":false}
+
+script-providers:
+  "youtube.response":
+    url: https://raw.githubusercontent.com/Maasea/sgmodule/master/Script/Youtube/youtube.response.js
+    interval: 86400
+
+# 屏蔽 QUIC，强制走 HTTPS
+rules:
+  - AND,((PROTOCOL,UDP),(DOMAIN-SUFFIX,googlevideo.com)),REJECT
+  - AND,((PROTOCOL,UDP),(DOMAIN-SUFFIX,googleapis.com)),REJECT
+
+# 参数说明：
+# captionLang: MV / 视频字幕翻译语言，zh-Hans 简中，zh-Hant 繁中，off 关闭
+# blockUpload: 屏蔽上传按钮；blockImmersive: 屏蔽「片段 / Samples」入口；blockShorts: 屏蔽 Shorts
