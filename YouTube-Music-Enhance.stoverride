@@ -1,8 +1,9 @@
 name: YouTube Music 增强
 desc: |-
-  去广告 / 后台播放 / 锁屏播放 / 下载按钮 / 屏蔽上传与片段入口 / MV 字幕翻译简体中文
+  去广告 / 后台播放 / 锁屏播放 / 下载按钮 / 屏蔽上传、片段、Shorts 入口
+  MV 字幕翻译简体中文 / 拦截广告统计与追踪 / 屏蔽 Google 广告域名 / 强制 HTTPS
   同时适用于 YouTube，和「YouTube (Music) 增强」二选一启用，不要同时开
-  需开启 MITM 并信任证书，脚本作者 @Maasea
+  需开启 MITM 并信任证书，主脚本作者 @Maasea
 icon: https://raw.githubusercontent.com/luestr/IconResource/main/App_icon/120px/YouTube.png
 category: 增强
 
@@ -10,19 +11,30 @@ http:
   mitm:
     - "*.googlevideo.com"
     - "youtubei.googleapis.com"
+    - "s.youtube.com"
+    - "www.youtube.com"
 
   url-rewrite:
     # 拦截音频和视频前的贴片广告
     - >-
       ^https?:\/\/[\w-]+\.googlevideo\.com\/initplayback.+&oad - reject-200
+    # 拦截广告统计、广告追踪与转化上报
+    - >-
+      ^https?:\/\/(www|s)\.youtube\.com\/api\/stats\/(ads|atr|delayplay|qoe\?.*adcontext) - reject-200
+    - >-
+      ^https?:\/\/(www|s)\.youtube\.com\/(pagead|ptracking|pcs\/activeview) - reject-200
+    - >-
+      ^https?:\/\/youtubei\.googleapis\.com\/youtubei\/v1\/(att\/get|notification\/record_interactions) - reject-200
 
   script:
+    # 主脚本：去广告 + 后台播放 + 下载按钮 + 字幕翻译 + 界面精简（自动识别 YouTube / Music）
     - match: ^https:\/\/youtubei\.googleapis\.com\/(youtubei\/v1\/(browse|next|player|search|reel\/reel_watch_sequence|guide|account\/get_setting|get_watch))(\?(.*))?$
       name: "youtube.response"
       type: response
       require-body: true
       max-size: -1
       binary-mode: true
+      timeout: 30
       argument: |-
         {"captionLang":"zh-Hans","blockUpload":true,"blockImmersive":true,"blockShorts":true,"debug":false}
 
@@ -31,11 +43,19 @@ script-providers:
     url: https://raw.githubusercontent.com/Maasea/sgmodule/master/Script/Youtube/youtube.response.js
     interval: 86400
 
-# 屏蔽 QUIC，强制走 HTTPS
 rules:
+  # 屏蔽 QUIC，强制走 HTTPS，保证 MITM 生效
   - AND,((PROTOCOL,UDP),(DOMAIN-SUFFIX,googlevideo.com)),REJECT
   - AND,((PROTOCOL,UDP),(DOMAIN-SUFFIX,googleapis.com)),REJECT
+  - AND,((PROTOCOL,UDP),(DOMAIN-SUFFIX,youtube.com)),REJECT
+  # Google 广告与追踪域名
+  - DOMAIN-SUFFIX,doubleclick.net,REJECT
+  - DOMAIN-SUFFIX,googleadservices.com,REJECT
+  - DOMAIN-SUFFIX,googlesyndication.com,REJECT
+  - DOMAIN,pagead2.googlesyndication.com,REJECT
+  - DOMAIN,ads.youtube.com,REJECT
+  - DOMAIN-KEYWORD,adservice.google,REJECT
 
-# 参数说明：
-# captionLang: MV / 视频字幕翻译语言，zh-Hans 简中，zh-Hant 繁中，off 关闭
+# 参数说明（改 argument）：
+# captionLang: 字幕翻译语言，zh-Hans 简中，zh-Hant 繁中，ja 日语，en 英语，off 关闭
 # blockUpload: 屏蔽上传按钮；blockImmersive: 屏蔽「片段 / Samples」入口；blockShorts: 屏蔽 Shorts
